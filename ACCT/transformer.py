@@ -96,7 +96,7 @@ class ACCT(nn.Module):
         return x
 
 class ACCTEncoder(nn.Module):
-    def __init__(self, attn_depth, embed_dim, num_heads=4, attn_dropout=0.1, relu_dropout=0.1, res_dropout=0.1,
+    def __init__(self, attn_depth, embed_dim, num_heads=4, attn_dropout=0.1, relu_dropout=0.1, res_dropout=0.1, sigma=0.5,
                  attn_mask=False):
         super().__init__()
         self.embed_dim = embed_dim
@@ -124,9 +124,11 @@ class ACCTEncoder(nn.Module):
 
         self.score = nn.Linear(2 * self.embed_dim, self.embed_dim)
 
+        self.sigma = sigma
+
     def forward(self, x, x_k, x_v, x_kv, text_k, text_v):
 
-        _, b, _ = x.shape
+        len, b, dim = x.shape
         residual = x
         x = self.maybe_layer_norm(0, x, before=True)
         mask = buffered_future_mask(x, x_k) if self.attn_mask else None
@@ -144,9 +146,9 @@ class ACCTEncoder(nn.Module):
             source_x, _ = attn(query=x_kv, key=text_k, value=text_v, attn_mask=mask2)
 
         score = self.sigmoid(self.score(torch.cat((x, source_x), dim=2)))
-        zeros = torch.zeros(50, b, 128).to(x.device)
-        zeros = zeros + 0.5
-        score = torch.where(score <= 0.5, zeros, score)
+        zeros = torch.zeros(len, b, dim).to(x.device)
+        zeros = zeros + self.sigma
+        score = torch.where(score <= self.sigma, zeros, score)
 
         x = score * x + (1 - score) * source_x
 
